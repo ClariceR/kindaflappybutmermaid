@@ -20,9 +20,11 @@ fn main() {
         .add_systems(Startup, (startup))
         .add_systems(FixedUpdate, (
             check_collisions,
-            despawn_pipes,
+            despawn_moving_objects,
             shift_pipes_to_the_left,
+            shift_collectibles_to_the_left,
             spawn_hooks.run_if(on_timer(Duration::from_millis(1000))), //spawn a pipe every one second
+            spawn_coins.run_if(on_timer(Duration::from_millis(900))),
         ))
         .add_systems(Update, (controls, calculate_physics))
         //.add_observer(respawn_on_endgame)
@@ -37,6 +39,9 @@ const GRAVITY: f32 = 900.0;
 const HOOK_SIZE: Vec2 =  Vec2::new(5., CANVAS_SIZE.y);
 const GAP_SIZE: f32 = 100.0;
 pub const HOOK_SPEED: f32 = 100.0;
+const COLLECTIBLES_SPEED: f32 = 50.0;
+
+const COIN_SIZE: f32 = 6.0;
 
 //Player
 #[derive(Component)]
@@ -223,6 +228,26 @@ fn spawn_hooks(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
     // ));
 }
 
+fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, time: ResMut<Time>)
+{
+    let image = asset_server.load("Coin.png");
+    let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.;
+    let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0., 1.);
+
+    commands.spawn((
+        transform,
+        Visibility::Visible,
+        Coin,
+        children![
+(            Sprite {
+                image,
+                ..default()
+            },
+            Transform::from_xyz(0.0, gap_y_position, 1.0),
+            Coin,)
+        ]
+        ));
+}
 fn shift_pipes_to_the_left(
     mut pipes: Query<&mut Transform, With<Hook>>, //We want to act on the position of the pipes, so we query the Transform components that are tagged as Pipe (as Pipe is the parent)
     time: Res<Time>,
@@ -232,12 +257,23 @@ fn shift_pipes_to_the_left(
     }
 }
 
-fn despawn_pipes(
-    mut commands: Commands,
-    pipes: Query<(Entity, &Transform), With<Hook>>,
-    //we are query by entity as we want to destroy it, but only when it's out of the screen, so we need to query the transform as well to get the position of the pipes
+fn shift_collectibles_to_the_left(
+    mut collectibles: Query<&mut Transform, With<Coin>>,
+    time: Res<Time>,
 ) {
-    for (entity, transform) in pipes {
+    for mut collectible in &mut collectibles {
+        collectible.translation.x -= COLLECTIBLES_SPEED * time.delta_secs();
+    }
+}
+
+fn despawn_moving_objects(
+    mut commands: Commands,
+    objects: Query<
+        (Entity, &Transform),
+        Or<(With<Hook>, With<Coin>)>, //will match either hook or coin, so we're grouping them together here
+    >,
+) {
+    for (entity, transform) in objects {
         if transform.translation.x < -(CANVAS_SIZE.x / 2.0 + HOOK_SIZE.x) {
             commands.entity(entity).despawn(); //.entity gets access to the entity and .despawn despawns the entity and remove its components
             //this happens recursively, and will include all children and their components as well
@@ -287,6 +323,9 @@ fn check_collisions(
     hook_segments: Query<
         (&Sprite, Entity), With<HookTop>, //will match either top or bottom, so we're grouping them together here
     >,
+    coins: Query<
+        (&Sprite, Entity), With<Coin>, //will match either top or bottom, so we're grouping them together here
+    >,
     hook_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
     mut gizmos: Gizmos, //visualize the colliders, draw the collider to the screen
     transform_helper: TransformHelper, //force the global transforms to be up to date when we need them to be
@@ -312,26 +351,46 @@ fn check_collisions(
 
     for (sprite, entity) in &hook_segments {
         //Get the up-to-date global transform
-        let pipe_transform = transform_helper.compute_global_transform(entity)?;
+        let hook_transform = transform_helper.compute_global_transform(entity)?;
 
         //Build the relevant collider struct. This is how a collider looks like!
-        let pipe_collider = Aabb2d::new(
-            pipe_transform.translation().xy(),
+        let hook_collider = Aabb2d::new(
+            hook_transform.translation().xy(),
             sprite.custom_size.unwrap() / 2.,
         );
 
         //Draw the gizmo to show the collider
         gizmos.rect_2d(
-            pipe_transform.translation().xy(),
+            hook_transform.translation().xy(),
             sprite.custom_size.unwrap(),
             RED_400,
         );
-        if player_collider.intersects(&pipe_collider) {
+        if player_collider.intersects(&hook_collider) {
             info!("Collision detected!")
             //commands.trigger(EndGame);
         }
     }
 
+    for (sprite, entity) in &coins {
+        //Get the up-to-date global transform
+        let coin_transform = transform_helper.compute_global_transform(entity)?;
+
+        //Build the relevant collider struct. This is how a collider looks like!
+        let coin_collider = BoundingCircle::new(coin_transform.translation().xy(), COIN_SIZE / 2.);
+
+        //Draw the gizmo to show the collider
+        gizmos.circle_2d(
+            coin_transform.translation().xy(),
+            COIN_SIZE / 2.,
+            RED_400,
+        );
+        if player_collider.intersects(&coin_collider) {
+            info!("Point!")
+            //commands.trigger(EndGame);
+        }
+    }
+
+    /*
     // for (sprite, entity) in &hook_gaps {
     //     //Get the up-to-date global transform
     //     let gap_transform = transform_helper.compute_global_transform(entity)?;
@@ -353,6 +412,7 @@ fn check_collisions(
     //         commands.entity(entity).despawn();
     //     }
     // }
+    */
 
     Ok(())
 }

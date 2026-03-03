@@ -19,6 +19,7 @@ fn main() {
         ))
         .add_systems(Startup, (startup))
         .add_systems(FixedUpdate, (
+            check_collisions,
             despawn_pipes,
             shift_pipes_to_the_left,
             spawn_hooks.run_if(on_timer(Duration::from_millis(1000))), //spawn a pipe every one second
@@ -275,6 +276,85 @@ fn controls(
         }
     }
 
+}
+
+#[derive(Event)]
+struct EndGame;
+
+fn check_collisions(
+    mut commands: Commands,
+    player: Single<(&Sprite, Entity), With<Player>>,
+    hook_segments: Query<
+        (&Sprite, Entity), With<HookTop>, //will match either top or bottom, so we're grouping them together here
+    >,
+    hook_gaps: Query<(&Sprite, Entity), With<PointsGate>>,
+    mut gizmos: Gizmos, //visualize the colliders, draw the collider to the screen
+    transform_helper: TransformHelper, //force the global transforms to be up to date when we need them to be
+) -> Result<()> {
+    //Pattern for the colliders:
+    //Get the up-to-date global transform
+    //Build the relevant collider struct
+    //Draw the gizmo to show the collider
+
+    //Get the up-to-date global transform
+    let player_transform = transform_helper.compute_global_transform(player.1)?;
+
+    //Build the relevant collider struct. This is how a collider looks like!
+    let player_collider =
+        BoundingCircle::new(player_transform.translation().xy(), PLAYER_SIZE / 2.);
+
+    //Draw the gizmo to show the collider
+    gizmos.circle_2d(
+        player_transform.translation().xy(),
+        PLAYER_SIZE / 2.,
+        RED_400,
+    );
+
+    for (sprite, entity) in &hook_segments {
+        //Get the up-to-date global transform
+        let pipe_transform = transform_helper.compute_global_transform(entity)?;
+
+        //Build the relevant collider struct. This is how a collider looks like!
+        let pipe_collider = Aabb2d::new(
+            pipe_transform.translation().xy(),
+            sprite.custom_size.unwrap() / 2.,
+        );
+
+        //Draw the gizmo to show the collider
+        gizmos.rect_2d(
+            pipe_transform.translation().xy(),
+            sprite.custom_size.unwrap(),
+            RED_400,
+        );
+        if player_collider.intersects(&pipe_collider) {
+            info!("Collision detected!")
+            //commands.trigger(EndGame);
+        }
+    }
+
+    // for (sprite, entity) in &hook_gaps {
+    //     //Get the up-to-date global transform
+    //     let gap_transform = transform_helper.compute_global_transform(entity)?;
+    //
+    //     //Build the relevant collider struct
+    //     let gap_collider = Aabb2d::new(
+    //         gap_transform.translation().xy(),
+    //         sprite.custom_size.unwrap() / 2.,
+    //     );
+    //     //Draw the gizmo to show the collider
+    //     gizmos.rect_2d(
+    //         gap_transform.translation().xy(),
+    //         sprite.custom_size.unwrap().xy(),
+    //         RED_400,
+    //     );
+    //
+    //     if player_collider.intersects(&gap_collider) {
+    //         commands.trigger(ScorePoint);
+    //         commands.entity(entity).despawn();
+    //     }
+    // }
+
+    Ok(())
 }
 
 /*

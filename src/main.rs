@@ -1,10 +1,11 @@
 use bevy::camera::ScalingMode;
 use bevy::color::palettes::tailwind::*;
 use bevy::image::ImageSamplerDescriptor;
-use bevy::{input::common_conditions::input_toggle_active, prelude::*};
+use bevy::{input::common_conditions::input_toggle_active, prelude::*, time::common_conditions::on_timer};
 use bevy::math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume};
 use bevy_enhanced_input::prelude::*;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use std::time::Duration;
 fn main() {
     App::new()
         .insert_resource(ClearColor(INDIGO_900.into()))
@@ -16,8 +17,12 @@ fn main() {
             WorldInspectorPlugin::default().run_if(input_toggle_active(true, KeyCode::Escape)),
             EnhancedInputPlugin,
         ))
-        .add_systems(Startup, startup)
-        //.add_systems(FixedUpdate, (gravity))
+        .add_systems(Startup, (startup))
+        .add_systems(FixedUpdate, (
+            despawn_pipes,
+            shift_pipes_to_the_left,
+            spawn_hooks.run_if(on_timer(Duration::from_millis(1000))), //spawn a pipe every one second
+        ))
         .add_systems(Update, (controls, calculate_physics))
         //.add_observer(respawn_on_endgame)
         .run();
@@ -28,7 +33,11 @@ const CANVAS_SIZE: Vec2 = Vec2::new(480., 270.);
 const FLOOR_SIZE: Vec2 = Vec2::new(480., 32.);
 const SKY_SIZE: Vec2 = Vec2::new(480., 24.);
 const GRAVITY: f32 = 900.0;
+const HOOK_SIZE: Vec2 =  Vec2::new(5., CANVAS_SIZE.y);
+const GAP_SIZE: f32 = 100.0;
+pub const HOOK_SPEED: f32 = 100.0;
 
+//Player
 #[derive(Component)]
 struct Player;
 
@@ -63,15 +72,18 @@ struct Dive;
 struct Floor;
 #[derive(Component)]
 struct Sky;
+#[derive(Component)]
+struct Skull;
+#[derive(Component)]
+struct Coin;
 
-/*
-// #[derive(Component)]
-// struct Hook;
-// #[derive(Component)]
-// struct Limit {
-//     colliding: bool,
-// }
-*/
+//Obstacles
+#[derive(Component)]
+struct Hook;
+#[derive(Component)]
+struct HookTop; //Child of Hook
+#[derive(Component)]
+pub struct PointsGate; //Child of Hook
 
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
@@ -87,13 +99,53 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands.spawn((
         Sprite {
-            image: asset_server.load("mermaid3.png"),
+            image: asset_server.load("mermaid-v2.png"),
             custom_size: Some(Vec2::splat(PLAYER_SIZE)),
             ..default()
         },
         Transform::from_xyz(0., 0., 1.),
         Player,
         PlayerPhysics::default(),
+    ));
+
+    commands.spawn((
+        Sprite {
+            image: asset_server.load("Skull-Common.png"),
+            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(70., 50., 1.),
+        Skull,
+    ));
+
+    commands.spawn((
+        Sprite {
+            image: asset_server.load("Skull-Pirate.png"),
+            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(90., -50., 1.),
+        Skull,
+    ));
+
+    commands.spawn((
+        Sprite {
+            image: asset_server.load("Skull-Queen.png"),
+            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(100., 0., 1.),
+        Skull,
+    ));
+
+    commands.spawn((
+        Sprite {
+            image: asset_server.load("Coin.png"),
+            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
+            ..default()
+        },
+        Transform::from_xyz(120., 25., 1.),
+        Coin,
     ));
 
     commands.spawn((
@@ -115,16 +167,86 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Transform::from_xyz(0., (CANVAS_SIZE.y / 2. - SKY_SIZE.y / 2.), 0.),
         Sky,
         ));
+}
+
+fn spawn_hooks(mut commands: Commands, asset_server: Res<AssetServer>, time: ResMut<Time>)
+{
+    let image = asset_server.load("Hook.png");
+    let image_mode = SpriteImageMode::Sliced(TextureSlicer {
+        border: BorderRect::axes(1., 10.),
+        center_scale_mode: SliceScaleMode::Stretch, //We are stretching only the center part of the pipe, preserving the top border part unchanged
+        ..default()
+    });
+
+    let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0., 1.);
+    let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.; //sin function returns a value between -1 and 1.
+    let pipe_offset = HOOK_SIZE.y / 2.0 + GAP_SIZE / 2.; //the positing is measured from the center, if we need to offset from the edge, we need to divide by 2
+
+    commands.spawn((
+        transform,           //position of the parent
+        Visibility::Visible, //we need to add visibility as the parent it's just a tag and won't be visible
+        Hook,                //parent tag
+        children![
+            (
+                Sprite {
+                    image,
+                    custom_size: Some(HOOK_SIZE),
+                    image_mode: image_mode.clone(), //same here, cloning as we need it again for bottom
+                    ..default()
+                },
+                Transform::from_xyz(0.0, pipe_offset + gap_y_position, 1.0,),
+                HookTop
+            ),
+            // (
+            //     //Visibility::Hidden,
+            //     Sprite {
+            //         color: Color::WHITE,
+            //         custom_size: Some(Vec2::new(5.0, HOOK_SIZE.y - gap_y_position,)),
+            //         image_mode,
+            //         ..default()
+            //     },
+            //     Transform::from_xyz(0.0, gap_y_position, 1.0,),
+            //     PointsGate
+            // ),
+        ],
+    ));
 
     // commands.spawn((
     //     Sprite {
-    //         image: asset_server.load("fish-hook.png"),
+    //         image: asset_server.load("Hook.png"),
     //         //custom_size: Some(FLOOR_SIZE),
     //         ..default()
     //     },
-    //     Transform::from_xyz(0., 0., 1.),
+    //     Transform::from_xyz(0., 100., 1.),
     //     Hook,
     // ));
+}
+
+fn shift_pipes_to_the_left(
+    mut pipes: Query<&mut Transform, With<Hook>>, //We want to act on the position of the pipes, so we query the Transform components that are tagged as Pipe (as Pipe is the parent)
+    time: Res<Time>,
+) {
+    for mut pipe in &mut pipes {
+        pipe.translation.x -= HOOK_SPEED * time.delta_secs(); //move according to how fast we want the pipes to move
+    }
+}
+
+fn despawn_pipes(
+    mut commands: Commands,
+    pipes: Query<(Entity, &Transform), With<Hook>>,
+    //we are query by entity as we want to destroy it, but only when it's out of the screen, so we need to query the transform as well to get the position of the pipes
+) {
+    for (entity, transform) in pipes {
+        if transform.translation.x < -(CANVAS_SIZE.x / 2.0 + HOOK_SIZE.x) {
+            commands.entity(entity).despawn(); //.entity gets access to the entity and .despawn despawns the entity and remove its components
+            //this happens recursively, and will include all children and their components as well
+        }
+    }
+}
+
+//helper function to visualise if pipes are despawning
+fn count_pipes(query: Query<&Hook>) {
+    info!("{} pipes exist", query.iter().len());
 }
 
 fn calculate_physics(
@@ -135,7 +257,7 @@ fn calculate_physics(
         physics.velocity.y -= GRAVITY * time.delta_secs();
         transform.translation.y += physics.velocity.y * time.delta_secs();
 
-        //Prevent moving off screen
+        //Prevent moving off-screen
         const MAX_Y: f32 = CANVAS_SIZE.y / 2.0 - PLAYER_SIZE / 2.0;
         transform.translation.y = transform.translation.y.clamp(-MAX_Y, MAX_Y)
     }

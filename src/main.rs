@@ -6,6 +6,8 @@ use bevy::math::bounding::{Aabb2d, BoundingCircle, IntersectsVolume};
 use bevy_enhanced_input::prelude::*;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use std::time::Duration;
+use bevy::ecs::error::info;
+use rand::prelude::*;
 fn main() {
     App::new()
         .insert_resource(ClearColor(INDIGO_900.into()))
@@ -24,7 +26,7 @@ fn main() {
             shift_pipes_to_the_left,
             shift_collectibles_to_the_left,
             spawn_hooks.run_if(on_timer(Duration::from_millis(1000))), //spawn a pipe every one second
-            spawn_coins.run_if(on_timer(Duration::from_millis(900))),
+            spawn_collectibles.run_if(on_timer(Duration::from_millis(900))),
         ))
         .add_systems(Update, (controls, calculate_physics))
         //.add_observer(respawn_on_endgame)
@@ -82,6 +84,8 @@ struct Sky;
 struct Skull;
 #[derive(Component)]
 struct Coin;
+#[derive(Component)]
+struct Collectible;
 
 //Obstacles
 #[derive(Component)]
@@ -91,6 +95,16 @@ struct HookTop; //Child of Hook
 #[derive(Component)]
 pub struct PointsGate; //Child of Hook
 
+fn choose_random_collectible() -> &'static str {
+    let mut rng = rand::rng();
+    let mut sprites = ["Skull-Common.png", "Skull-Pirate.png", "Skull-Queen.png", "Coin.png", "Coin.png", "Coin.png"];
+    info!("sprites uns: {:?}", sprites);
+    sprites.shuffle(&mut rng);
+    info!("sprites s: {:?}", sprites);
+    let option = sprites.choose(&mut rng).unwrap();
+    info!("random from function: {}", option);
+    option
+}
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Camera2d::default(),
@@ -112,46 +126,6 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Transform::from_xyz(0., 0., 1.),
         Player,
         PlayerPhysics::default(),
-    ));
-
-    commands.spawn((
-        Sprite {
-            image: asset_server.load("Skull-Common.png"),
-            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
-            ..default()
-        },
-        Transform::from_xyz(70., 50., 1.),
-        Skull,
-    ));
-
-    commands.spawn((
-        Sprite {
-            image: asset_server.load("Skull-Pirate.png"),
-            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
-            ..default()
-        },
-        Transform::from_xyz(90., -50., 1.),
-        Skull,
-    ));
-
-    commands.spawn((
-        Sprite {
-            image: asset_server.load("Skull-Queen.png"),
-            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
-            ..default()
-        },
-        Transform::from_xyz(100., 0., 1.),
-        Skull,
-    ));
-
-    commands.spawn((
-        Sprite {
-            image: asset_server.load("Coin.png"),
-            //custom_size: Some(Vec2::splat(PLAYER_SIZE)),
-            ..default()
-        },
-        Transform::from_xyz(120., 25., 1.),
-        Coin,
     ));
 
     commands.spawn((
@@ -228,23 +202,24 @@ fn spawn_hooks(mut commands: Commands, asset_server: Res<AssetServer>, time: Res
     // ));
 }
 
-fn spawn_coins(mut commands: Commands, asset_server: Res<AssetServer>, time: ResMut<Time>)
+fn spawn_collectibles(mut commands: Commands, asset_server: Res<AssetServer>, time: ResMut<Time>)
 {
-    let image = asset_server.load("Coin.png");
+    let collectible = choose_random_collectible();
+    let image = asset_server.load(collectible);
     let gap_y_position = (time.elapsed_secs() * 4.2309875).sin() * CANVAS_SIZE.y / 4.;
     let transform = Transform::from_xyz(CANVAS_SIZE.x / 2., 0., 1.);
 
     commands.spawn((
         transform,
         Visibility::Visible,
-        Coin,
+        Collectible,
         children![
 (            Sprite {
                 image,
                 ..default()
             },
             Transform::from_xyz(0.0, gap_y_position, 1.0),
-            Coin,)
+            Collectible,)
         ]
         ));
 }
@@ -258,7 +233,7 @@ fn shift_pipes_to_the_left(
 }
 
 fn shift_collectibles_to_the_left(
-    mut collectibles: Query<&mut Transform, With<Coin>>,
+    mut collectibles: Query<&mut Transform, With<Collectible>>,
     time: Res<Time>,
 ) {
     for mut collectible in &mut collectibles {
@@ -366,7 +341,7 @@ fn check_collisions(
             RED_400,
         );
         if player_collider.intersects(&hook_collider) {
-            info!("Collision detected!")
+            info!("Ouch!")
             //commands.trigger(EndGame);
         }
     }
